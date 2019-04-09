@@ -28,4 +28,4 @@ The example app `EventRouter.SampleApp` defines an event `MessageEvent` containi
 
 ## License
 
-This library is licensed under the MIT license. See `LICENSE.md` in the root directory of this repository.
+This library is licensed under the MIT license. See `LICENSE` in the root directory of this repository.

@@ -9,7 +9,7 @@
     <Description>A library providing a generic one-way event routing mechanism for any kind of events.</Description>
     <Copyright>Kristian Virkus</Copyright>
     <PackageLicenseExpression />
-    <PackageTags>events router cqrs logging event sourcing</PackageTags>
+    <PackageTags>events router routing cqrs logging logger event sourcing forwarding queue</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <PackageLicenseUrl>https://raw.githubusercontent.com/KristianVirkus/EventRouter/master/LICENSE</PackageLicenseUrl>
