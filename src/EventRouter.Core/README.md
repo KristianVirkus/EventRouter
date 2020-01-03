@@ -18,6 +18,8 @@ A built-in preprocessor is `FilterPreprocessor` which allows for simple filterin
 
 Instead of creating a `HubConfiguration<T>` instance directly, the builder `HubConfigurationBuilder<T>` can also be used to fluently define a hub configuration and finally calling the `Build()` method to create a related `HubConfiguration<T>` instance.
 
+Routers implementing `IFlushableRouter<T>` can be instructed to flush their buffers by calling `FlushAsync`. Also implementations of `IFlushableHub<T>` can be instructed to flush their routers' buffers.
+
 ## Example
 
 The example app `EventRouter.SampleApp` defines an event `MessageEvent` containing a printable `Message`, a router `ConsoleRouter` which prints forwarded events on the console, and utilizes a `Hub` configured to forward all events whose messages start with the text `Important`.

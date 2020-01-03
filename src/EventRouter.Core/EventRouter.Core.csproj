@@ -11,13 +11,13 @@
     <PackageLicenseExpression />
     <PackageTags>events router routing cqrs logging logger event sourcing forwarding queue</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageLicenseUrl></PackageLicenseUrl>
     <PackageProjectUrl>https://github.com/KristianVirkus/EventRouter</PackageProjectUrl>
     <RepositoryUrl>https://github.com/KristianVirkus/EventRouter</RepositoryUrl>
     <PackageIconUrl>https://raw.githubusercontent.com/KristianVirkus/EventRouter/master/res/icon.png</PackageIconUrl>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
   </PropertyGroup>
 
