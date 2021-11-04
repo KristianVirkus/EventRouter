@@ -32,6 +32,7 @@ namespace EventRouter.SampleApp
 			hub.Forward(Events);
 
 			// Wait a second to allow concurrent event distribution mechanisms to complete.
+			await hub.FlushAsync(default);
 			await Task.Delay(1000);
 		}
 	}
