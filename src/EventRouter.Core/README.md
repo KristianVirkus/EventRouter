@@ -18,7 +18,7 @@ A built-in preprocessor is `FilterPreprocessor` which allows for simple filterin
 
 Instead of creating a `HubConfiguration<T>` instance directly, the builder `HubConfigurationBuilder<T>` can also be used to fluently define a hub configuration and finally calling the `Build()` method to create a related `HubConfiguration<T>` instance.
 
-Routers implementing `IFlushableRouter<T>` can be instructed to flush their buffers by calling `FlushAsync`. Also implementations of `IFlushableHub<T>` can be instructed to flush their routers' buffers.
+Routers implementing `IFlushableRouter<T>` can be instructed to flush their buffers by calling `FlushAsync`. Also implementations of `IFlushableHub<T>` can be instructed to flush their routers' buffers. It is guaranteed that all events until that call will have been forwarded to the routers. However, it's up to each router to acually ensure that all the events until then have been considered when flushing.
 
 ## Example
 
