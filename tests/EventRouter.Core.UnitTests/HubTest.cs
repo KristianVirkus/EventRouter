@@ -3,6 +3,7 @@ using Moq;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -249,7 +250,6 @@ namespace EventRouter.Core.UnitTests
         {
             this.prepare(out var router, out var hubConfiguration);
             var hub = await this.runHub(hubConfiguration);
-            await hub.ReconfigureAsync(null, default);
             Assert.Throws<ArgumentNullException>(() => hub.Forward(null));
         }
 
@@ -258,7 +258,6 @@ namespace EventRouter.Core.UnitTests
         {
             this.prepare(out var router, out var hubConfiguration);
             var hub = await this.runHub(hubConfiguration);
-            await hub.ReconfigureAsync(null, default);
             hub.Forward(new TestRoutable[] { null });
         }
 
@@ -514,6 +513,84 @@ namespace EventRouter.Core.UnitTests
             router2Flushed.Should().BeTrue();
         }
 
+        [Test]
+        public async Task FlushWithFirstRouterBlocking_Should_CompleteFlushingAnyway()
+        {
+            // Arrange
+            var router1Flushed = new ManualResetEventSlim();
+            var router2Flushed = new ManualResetEventSlim();
+            var exception1 = new Exception();
+            var router1 = Mock.Of<IFlushableRouter<TestRoutable>>();
+            Mock.Get(router1)
+                .Setup(m => m.FlushAsync(It.IsAny<CancellationToken>()))
+                .Returns<CancellationToken>(async _cancellationToken =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2), _cancellationToken);
+                    router1Flushed.Set();
+                });
+            var router2 = Mock.Of<IFlushableRouter<TestRoutable>>();
+            Mock.Get(router2)
+                .Setup(m => m.FlushAsync(It.IsAny<CancellationToken>()))
+                .Returns<CancellationToken>(_ =>
+                {
+                    router2Flushed.Set();
+                    return Task.CompletedTask;
+                });
+            var hubConfiguration = new HubConfiguration<TestRoutable>(
+                new IFlushableRouter<TestRoutable>[] { router1, router2 },
+                new IRoutablePreprocessor<TestRoutable>[0],
+                MaximumRoutablesQueueLengthDefault,
+                MaximumRoutablesForwardingCountDefault,
+                WaitForMoreRoutablesForwardingDelayDefault);
+
+            // Act
+            var hub = await this.runHub(hubConfiguration);
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+            var results = await hub.FlushAsync(default).ConfigureAwait(false);
+
+            // Assert
+            router2Flushed.Wait(TimeSpan.FromSeconds(1));
+            router1Flushed.Wait(TimeSpan.FromSeconds(3));
+            stopwatch.Stop();
+            stopwatch.Elapsed.Should().BeCloseTo(TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(500));
+        }
+
+        [Test]
+        public async Task FlushWithTaskCanceledExceptionInRouter_ShouldThrow_TaskCanceledException()
+        {
+            // Arrange
+            Exception innerException = new TaskCanceledException();
+            innerException.Data["id"] = "exception-id";
+            var router = Mock.Of<IFlushableRouter<TestRoutable>>();
+            Mock.Get(router)
+                .Setup(m => m.FlushAsync(It.IsAny<CancellationToken>()))
+                .Returns<CancellationToken>(_ =>
+                {
+                    throw new TaskCanceledException("Test", innerException);
+                });
+            var hubConfiguration = new HubConfiguration<TestRoutable>(
+                new IFlushableRouter<TestRoutable>[] { router },
+                new IRoutablePreprocessor<TestRoutable>[0],
+                MaximumRoutablesQueueLengthDefault,
+                MaximumRoutablesForwardingCountDefault,
+                WaitForMoreRoutablesForwardingDelayDefault);
+
+            // Act & Assert
+            var hub = await this.runHub(hubConfiguration);
+            try
+            {
+                await hub.FlushAsync(default).ConfigureAwait(false);
+                Assert.Fail("Should have thrown exception.");
+            }
+            catch (Exception ex)
+            {
+                // TODO Why is the exception a different instance with different content when using Assert.ThrowsAsync() instead of this approach?
+                ex.InnerException.Should().BeSameAs(innerException);
+                ex.InnerException.Data["id"].Should().Be("exception-id");
+            }
+        }
+
         #endregion
-    }
+        }
 }

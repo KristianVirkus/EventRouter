@@ -25,7 +25,7 @@ namespace EventRouter.Core
         readonly SemaphoreSlim sync = new SemaphoreSlim(1, 1);
 
         readonly SemaphoreSlim enqueueSync = new SemaphoreSlim(1, 1);
-        BlockingCollection<T> queue = new BlockingCollection<T>(new ConcurrentQueue<T>(), InitialQueueCapacity);
+        BlockingCollection<IQueueable> queue = new BlockingCollection<IQueueable>(new ConcurrentQueue<IQueueable>(), InitialQueueCapacity);
         CancellationTokenSource forwardingTaskCancellationTokenSource;
 
         Task forwardingTask;
@@ -74,8 +74,8 @@ namespace EventRouter.Core
                     // Create new queue with configured capacity while reusing left-over
                     // queue contents from previous configuration or from the
                     // not-configured state.
-                    this.queue = new BlockingCollection<T>(
-                        new ConcurrentQueue<T>(this.queue.ToArray() ?? new T[0]),
+                    this.queue = new BlockingCollection<IQueueable>(
+                        new ConcurrentQueue<IQueueable>(this.queue.ToArray() ?? Array.Empty<IQueueable>()),
                         configuration.MaximumRoutablesQueueLength);
 
                     var cts = new CancellationTokenSource();
@@ -149,21 +149,21 @@ namespace EventRouter.Core
 
             if (forwardRoutables.Any())
             {
-                this.enqueueRoutables(forwardRoutables);
+                this.enqueue(forwardRoutables.Select(r => new QueueableEvent<T>(evt: r)));
             }
         }
 
-        void enqueueRoutables(IEnumerable<T> routables)
+        void enqueue(IEnumerable<IQueueable> queueables)
         {
             // Use synchronisation to keep order of routables being enqueued concurrently.
             this.enqueueSync.Wait();
             try
             {
-                if (this.queue is BlockingCollection<T> queue)
+                if (this.queue is BlockingCollection<IQueueable> queue)
                 {
-                    foreach (var routable in routables)
+                    foreach (var queueable in queueables)
                     {
-                        queue.TryAdd(routable); // TODO Log if queue full.
+                        queue.TryAdd(queueable); // TODO Log if queue full.
                     }
                 }
             }
@@ -173,26 +173,26 @@ namespace EventRouter.Core
             }
         }
 
-        void processQueue(HubConfiguration<T> configuration, BlockingCollection<T> queue,
+        void processQueue(HubConfiguration<T> configuration, BlockingCollection<IQueueable> queue,
             CancellationToken cancellationToken)
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    var list = new List<T>();
+                    var list = new List<IQueueable>();
 
                     // Get next routable to forward.
-                    var routable = queue.Take(cancellationToken);
-                    list.Add(routable);
+                    var queueable = queue.Take(cancellationToken);
+                    list.Add(queueable);
 
                     // Get even more routables to forward within the configured time frame.
                     var tryTakeStarted = DateTime.UtcNow;
                     while ((!cancellationToken.IsCancellationRequested)
                         && (list.Count < configuration.MaximumRoutablesForwardingCount)
-                        && (queue.TryTake(out routable, TimeSpan.FromTicks(Math.Max(0, (tryTakeStarted.Add(configuration.WaitForMoreRoutablesForwardingDelay) - DateTime.UtcNow).Ticks)))))
+                        && (queue.TryTake(out queueable, TimeSpan.FromTicks(Math.Max(0, (tryTakeStarted.Add(configuration.WaitForMoreRoutablesForwardingDelay) - DateTime.UtcNow).Ticks)))))
                     {
-                        list.Add(routable);
+                        list.Add(queueable);
                     }
 
                     if (cancellationToken.IsCancellationRequested) return;
@@ -205,22 +205,30 @@ namespace EventRouter.Core
                         while (i < list.Count)
                         {
                             var preprocessedRoutable = list[i];
-                            var replacementRoutables = preprocessor.Process(preprocessedRoutable);
-                            if (replacementRoutables != null)
+                            if (preprocessedRoutable is QueueableEvent<T> queueableEvent)
                             {
-                                // Remove original item first.
-                                list.RemoveAt(i);
-
-                                if (replacementRoutables.Any())
+                                var replacementRoutables = preprocessor.Process(queueableEvent.Event);
+                                if (replacementRoutables != null)
                                 {
-                                    // Insert replacement items.
-                                    list.InsertRange(i, replacementRoutables);
-                                    i += replacementRoutables.Count();
+                                    // Remove original item first.
+                                    list.RemoveAt(i);
+
+                                    if (replacementRoutables.Any())
+                                    {
+                                        // Insert replacement items.
+                                        list.InsertRange(i, replacementRoutables.Select(r => new QueueableEvent<T>(evt: r)).ToArray());
+                                        i += replacementRoutables.Count();
+                                    }
+                                }
+                                else
+                                {
+                                    // Keep item.
+                                    ++i;
                                 }
                             }
                             else
                             {
-                                // Keep routable item.
+                                // Not a routable. Keep item.
                                 ++i;
                             }
                         }
@@ -234,7 +242,19 @@ namespace EventRouter.Core
                         {
                             try
                             {
-                                router.ForwardAsync(list, default).GetAwaiter().GetResult();
+                                router.ForwardAsync(list.OfType<QueueableEvent<T>>().Select(q => q.Event), default).GetAwaiter().GetResult();
+                            }
+                            catch
+                            {
+                                // TODO Log.
+                            }
+                        }
+
+                        foreach (var r in list.OfType<QueueableWaitHandleSignal>())
+                        {
+                            try
+                            {
+                                r.Signal();
                             }
                             catch
                             {
@@ -287,6 +307,16 @@ namespace EventRouter.Core
 
             if (routers == null) return null;
 
+            var signallable = new QueueableWaitHandleSignal();
+            this.enqueue(new IQueueable[] { signallable });
+
+            // Wait until synchronization marker has been processed and thus all previous
+            // events have been forwarded to the configured routers.
+            if (WaitHandle.WaitAny(new[] { signallable.Event, cancellationToken.WaitHandle }) == 1)
+                throw new TaskCanceledException();
+
+            // Now it can be waited for routers to finish flushing as it is guaranteed that
+            // they have received all previous events.
             // Flush routers outside of the lock to avoid dead-locks in
             // case any of the routers interacts with this logfile.
             foreach (var router in routers)
@@ -297,7 +327,7 @@ namespace EventRouter.Core
                 {
                     await router.FlushAsync(cancellationToken: cancellationToken);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     results.Add((Router: router, Exception: ex));
                 }
