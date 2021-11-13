@@ -585,7 +585,8 @@ namespace EventRouter.Core.UnitTests
             }
             catch (Exception ex)
             {
-                ex.InnerException.Should().BeSameAs(innerException); // TODO Why is the exception a different instance with different content?
+                // TODO Why is the exception a different instance with different content when using Assert.ThrowsAsync() instead of this approach?
+                ex.InnerException.Should().BeSameAs(innerException);
                 ex.InnerException.Data["id"].Should().Be("exception-id");
             }
         }
