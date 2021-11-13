@@ -327,7 +327,7 @@ namespace EventRouter.Core
                 {
                     await router.FlushAsync(cancellationToken: cancellationToken);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     results.Add((Router: router, Exception: ex));
                 }
