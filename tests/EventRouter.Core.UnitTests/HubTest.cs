@@ -556,6 +556,40 @@ namespace EventRouter.Core.UnitTests
             stopwatch.Elapsed.Should().BeCloseTo(TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(500));
         }
 
+        [Test]
+        public async Task FlushWithTaskCanceledExceptionInRouter_ShouldThrow_TaskCanceledException()
+        {
+            // Arrange
+            Exception innerException = new TaskCanceledException();
+            innerException.Data["id"] = "exception-id";
+            var router = Mock.Of<IFlushableRouter<TestRoutable>>();
+            Mock.Get(router)
+                .Setup(m => m.FlushAsync(It.IsAny<CancellationToken>()))
+                .Returns<CancellationToken>(_ =>
+                {
+                    throw new TaskCanceledException("Test", innerException);
+                });
+            var hubConfiguration = new HubConfiguration<TestRoutable>(
+                new IFlushableRouter<TestRoutable>[] { router },
+                new IRoutablePreprocessor<TestRoutable>[0],
+                MaximumRoutablesQueueLengthDefault,
+                MaximumRoutablesForwardingCountDefault,
+                WaitForMoreRoutablesForwardingDelayDefault);
+
+            // Act & Assert
+            var hub = await this.runHub(hubConfiguration);
+            try
+            {
+                await hub.FlushAsync(default).ConfigureAwait(false);
+                Assert.Fail("Should have thrown exception.");
+            }
+            catch (Exception ex)
+            {
+                ex.InnerException.Should().BeSameAs(innerException); // TODO Why is the exception a different instance with different content?
+                ex.InnerException.Data["id"].Should().Be("exception-id");
+            }
+        }
+
         #endregion
-    }
+        }
 }
